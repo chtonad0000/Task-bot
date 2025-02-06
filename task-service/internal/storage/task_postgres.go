@@ -8,20 +8,20 @@ import (
 	"time"
 )
 
-type PostgresStorage struct {
+type TaskPostgresStorage struct {
 	DB *pgx.Conn
 }
 
-func NewPostgresStorage(connectionStr string) (*PostgresStorage, error) {
+func NewPostgresStorage(connectionStr string) (*TaskPostgresStorage, error) {
 	connection, err := pgx.Connect(context.Background(), connectionStr)
 	if err != nil {
 		return nil, fmt.Errorf("unable to connect to db: %v", err)
 	}
 
-	return &PostgresStorage{connection}, nil
+	return &TaskPostgresStorage{connection}, nil
 }
 
-func (s *PostgresStorage) CreateTask(ctx context.Context, userID int64, text string, priority int32, deadline time.Time) (*ts.Task, error) {
+func (s *TaskPostgresStorage) CreateTask(ctx context.Context, userID int64, text string, priority int32, deadline time.Time) (*ts.Task, error) {
 	query := `
 		INSERT INTO tasks (user_id, task_text, priority, deadline, progress)
 		VALUES ($1, $2, $3, $4, $5)
@@ -35,7 +35,7 @@ func (s *PostgresStorage) CreateTask(ctx context.Context, userID int64, text str
 	return &task, nil
 }
 
-func (s *PostgresStorage) GetTasks(ctx context.Context, userID int64) ([]ts.Task, error) {
+func (s *TaskPostgresStorage) GetTasks(ctx context.Context, userID int64) ([]ts.Task, error) {
 	query := `SELECT id, text, priority, deadline, progress FROM tasks WHERE user_id = $1`
 	rows, err := s.DB.Query(ctx, query, userID)
 	if err != nil {
@@ -55,7 +55,7 @@ func (s *PostgresStorage) GetTasks(ctx context.Context, userID int64) ([]ts.Task
 	return tasks, nil
 }
 
-func (s *PostgresStorage) DeleteTask(ctx context.Context, taskID int64) error {
+func (s *TaskPostgresStorage) DeleteTask(ctx context.Context, taskID int64) error {
 	query := `DELETE FROM tasks WHERE id = $1`
 	_, err := s.DB.Exec(ctx, query, taskID)
 	if err != nil {
@@ -64,7 +64,7 @@ func (s *PostgresStorage) DeleteTask(ctx context.Context, taskID int64) error {
 	return nil
 }
 
-func (s *PostgresStorage) UpdateTaskStatus(ctx context.Context, taskID int64, progress int32) error {
+func (s *TaskPostgresStorage) UpdateTaskStatus(ctx context.Context, taskID int64, progress int32) error {
 	query := `UPDATE tasks SET progress = $1 WHERE id = $2`
 	_, err := s.DB.Exec(ctx, query, progress, taskID)
 	if err != nil {
