@@ -23,9 +23,9 @@ func NewPostgresStorage(connectionStr string) (*TaskPostgresStorage, error) {
 
 func (s *TaskPostgresStorage) CreateTask(ctx context.Context, userID int64, text string, priority int32, deadline time.Time) (*ts.Task, error) {
 	query := `
-		INSERT INTO tasks (user_id, task_text, priority, deadline, progress)
+		INSERT INTO tasks (user_id, text, priority, deadline, progress)
 		VALUES ($1, $2, $3, $4, $5)
-		RETURNING id, user_id, task_text, priority, deadline, progress;
+		RETURNING id, user_id, text, priority, deadline, progress;
 	`
 	var task ts.Task
 	err := s.DB.QueryRow(ctx, query, userID, text, priority, deadline, 0).Scan(&task.ID, &task.UserID, &task.Text, &task.Priority, &task.Deadline, &task.Progress)
