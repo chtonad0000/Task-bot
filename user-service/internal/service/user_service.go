@@ -10,13 +10,13 @@ import (
 type User struct {
 	ID        int64
 	Username  string
-	TgUserId  int64
+	TgUserId  []byte
 	CreatedAt time.Time
 }
 
 type UserStorage interface {
-	CreateUser(ctx context.Context, username string, tgUserId int64) (*User, error)
-	GetUser(ctx context.Context, tgUserId int64) (*User, error)
+	CreateUser(ctx context.Context, username string, tgUserId []byte) (*User, error)
+	GetUser(ctx context.Context, tgUserId []byte) (*User, error)
 }
 
 type UserService struct {

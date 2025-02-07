@@ -13,16 +13,16 @@ service UserService {
 
 message CreateUserRequest {
   string username = 1;
-  int64 tg_user_id = 2;
+  bytes tg_user_id = 2;
 }
 
 message GetUserRequest {
-  int64 tg_user_id = 1;
+  bytes tg_user_id = 1;
 }
 
 message UserResponse {
   int64 id = 1;
   string username = 2;
-  int64 tg_user_id = 3;
+  bytes tg_user_id = 3;
   google.protobuf.Timestamp created_at = 4;
 }

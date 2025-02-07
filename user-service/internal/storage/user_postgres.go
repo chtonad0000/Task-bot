@@ -20,7 +20,7 @@ func NewPostgresStorage(connectionStr string) (*UserPostgresStorage, error) {
 	return &UserPostgresStorage{connection}, nil
 }
 
-func (s *UserPostgresStorage) CreateUser(ctx context.Context, username string, tgUserId int64) (*us.User, error) {
+func (s *UserPostgresStorage) CreateUser(ctx context.Context, username string, tgUserId []byte) (*us.User, error) {
 	query := `
 		INSERT INTO users (username, tg_user_id)
 		VALUES ($1, $2)
@@ -34,7 +34,7 @@ func (s *UserPostgresStorage) CreateUser(ctx context.Context, username string, t
 	return &user, nil
 }
 
-func (s *UserPostgresStorage) GetUser(ctx context.Context, tgUserId int64) (*us.User, error) {
+func (s *UserPostgresStorage) GetUser(ctx context.Context, tgUserId []byte) (*us.User, error) {
 	query := `SELECT id, username, tg_user_id, created_at FROM users WHERE tg_user_id = $1`
 	var user us.User
 	err := s.DB.QueryRow(ctx, query, tgUserId).Scan(&user.ID, &user.Username, &user.TgUserId, &user.CreatedAt)
