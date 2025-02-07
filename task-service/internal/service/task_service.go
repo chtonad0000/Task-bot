@@ -16,7 +16,7 @@ type Task struct {
 	Progress int32
 }
 
-type Storage interface {
+type TaskStorage interface {
 	CreateTask(ctx context.Context, userID int64, text string, priority int32, deadline time.Time) (*Task, error)
 	GetTasks(ctx context.Context, userID int64) ([]Task, error)
 	DeleteTask(ctx context.Context, taskID int64) error
@@ -24,11 +24,11 @@ type Storage interface {
 }
 
 type TaskService struct {
-	storage Storage
+	storage TaskStorage
 	pb.UnimplementedTaskServiceServer
 }
 
-func NewTaskService(storage Storage) *TaskService {
+func NewTaskService(storage TaskStorage) *TaskService {
 	return &TaskService{storage: storage}
 }
 func (t *TaskService) CreateTask(ctx context.Context, req *pb.CreateTaskRequest) (*pb.TaskResponse, error) {
