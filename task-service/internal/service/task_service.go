@@ -42,6 +42,7 @@ func (t *TaskService) CreateTask(ctx context.Context, req *pb.CreateTaskRequest)
 		Priority: task.Priority,
 		Deadline: timestamppb.New(task.Deadline),
 		Progress: task.Progress,
+		TaskId:   task.ID,
 	}, nil
 }
 
@@ -58,6 +59,7 @@ func (t *TaskService) GetTasks(ctx context.Context, req *pb.GetTaskRequest) (*pb
 			Priority: task.Priority,
 			Deadline: timestamppb.New(task.Deadline),
 			Progress: task.Progress,
+			TaskId:   task.ID,
 		})
 	}
 	return &pb.GetTaskResponse{
