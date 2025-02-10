@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package scheduler;
+
+option go_package = "./;scheduler";
+
+import "google/protobuf/timestamp.proto";
+
+service Scheduler {
+  rpc CalculateOptimalPlan (CalculatePlanRequest) returns (CalculatePlanResponse);
+}
+
+message CalculatePlanRequest {
+  int64 user_id = 1;
+}
+
+message CalculatePlanResponse {
+  repeated TaskInfo tasks = 1;
+}
+
+message TaskInfo {
+  string task_text = 1;
+  int32 priority = 2;
+  google.protobuf.Timestamp deadline = 3;
+  int32 progress = 4;
+  int64 task_id = 5;
+}

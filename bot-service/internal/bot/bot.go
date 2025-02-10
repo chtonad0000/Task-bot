@@ -3,12 +3,11 @@ package bot
 import (
 	"log"
 
-	pbTask "github.com/Task-bot/bot-service/internal/generated/task"
-	pbUser "github.com/Task-bot/bot-service/internal/generated/user"
+	"github.com/Task-bot/bot-service/internal/services"
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func StartBot(token string, taskClient pbTask.TaskServiceClient, userClient pbUser.UserServiceClient) {
+func StartBot(token string, registry *services.ServiceRegistry) {
 	bot, err := tgbot.NewBotAPI(token)
 	if err != nil {
 		log.Fatalf("Failed to create bot: %v", err)
@@ -24,9 +23,9 @@ func StartBot(token string, taskClient pbTask.TaskServiceClient, userClient pbUs
 	for update := range updates {
 		go func(upd tgbot.Update) {
 			if upd.Message != nil {
-				handleMessage(bot, upd.Message, taskClient, userClient)
+				handleMessage(bot, upd.Message, registry)
 			} else if upd.CallbackQuery != nil {
-				handleCallback(bot, upd.CallbackQuery, taskClient, userClient)
+				handleCallback(bot, upd.CallbackQuery, registry)
 			}
 		}(update)
 	}

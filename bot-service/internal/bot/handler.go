@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	pbScheduler "github.com/Task-bot/bot-service/internal/generated/scheduler"
+	"github.com/Task-bot/bot-service/internal/services"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"strconv"
@@ -19,7 +21,7 @@ func MakeButtons() tgbot.InlineKeyboardMarkup {
 	return tgbot.NewInlineKeyboardMarkup(
 		[]tgbot.InlineKeyboardButton{tgbot.NewInlineKeyboardButtonData("Добавить задачу", "add_task")},
 		[]tgbot.InlineKeyboardButton{tgbot.NewInlineKeyboardButtonData("Посмотреть все задачи", "show_tasks")},
-		[]tgbot.InlineKeyboardButton{tgbot.NewInlineKeyboardButtonData("(В разработке) Построить план выполнения", "plan")},
+		[]tgbot.InlineKeyboardButton{tgbot.NewInlineKeyboardButtonData("Построить план выполнения", "plan")},
 		[]tgbot.InlineKeyboardButton{tgbot.NewInlineKeyboardButtonData("Обновить прогресс задачи", "update_progress")},
 		[]tgbot.InlineKeyboardButton{tgbot.NewInlineKeyboardButtonData("Удалить задачу", "delete_task")},
 	)
@@ -202,7 +204,7 @@ func UpdateTask(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.TaskS
 	return false
 }
 
-func handleMessage(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.TaskServiceClient, userClient user.UserServiceClient) {
+func handleMessage(bot *tgbot.BotAPI, message *tgbot.Message, registry *services.ServiceRegistry) {
 	tgUserId := message.From.ID
 	text := message.Text
 
@@ -216,14 +218,31 @@ func handleMessage(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.Ta
 	defer cancel()
 
 	req := &user.GetUserRequest{TgUserId: hashedUserId}
-
-	userGet, err := userClient.GetUser(ctx, req)
+	service, ok := registry.GetService("user")
+	if !ok {
+		log.Printf("Failed to get user service")
+		return
+	}
+	userService, ok := service.(*services.UserServiceClient)
+	if !ok {
+		log.Fatal("Ошибка приведения типа")
+	}
+	service, ok = registry.GetService("task")
+	if !ok {
+		log.Printf("Failed to get user service")
+		return
+	}
+	taskService, ok := service.(*services.TaskServiceClient)
+	if !ok {
+		log.Fatal("Ошибка приведения типа")
+	}
+	userGet, err := userService.Client.GetUser(ctx, req)
 	if err != nil {
 		newUser := &user.CreateUserRequest{
 			TgUserId: hashedUserId,
 			Username: message.From.UserName,
 		}
-		_, errCreate := userClient.CreateUser(ctx, newUser)
+		_, errCreate := userService.Client.CreateUser(ctx, newUser)
 		if errCreate != nil {
 			log.Printf("Failed to create user: %v", errCreate)
 			return
@@ -233,11 +252,12 @@ func handleMessage(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.Ta
 	} else {
 		log.Printf("User found: %v", userGet)
 	}
-	res := CreateTask(bot, message, taskClient, userClient)
+
+	res := CreateTask(bot, message, taskService.Client, userService.Client)
 	if res {
 		return
 	}
-	res = UpdateTask(bot, message, taskClient)
+	res = UpdateTask(bot, message, taskService.Client)
 	if res {
 		return
 	}
@@ -276,8 +296,26 @@ func handleMessage(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.Ta
 	}
 }
 
-func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient task.TaskServiceClient, userClient user.UserServiceClient) {
+func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, registry *services.ServiceRegistry) {
 	tgUserId := callback.From.ID
+	service, ok := registry.GetService("user")
+	if !ok {
+		log.Printf("Failed to get user service")
+		return
+	}
+	userService, ok := service.(*services.UserServiceClient)
+	if !ok {
+		log.Fatal("Ошибка приведения типа")
+	}
+	service, ok = registry.GetService("task")
+	if !ok {
+		log.Printf("Failed to get user service")
+		return
+	}
+	taskService, ok := service.(*services.TaskServiceClient)
+	if !ok {
+		log.Fatal("Ошибка приведения типа")
+	}
 	switch callback.Data {
 	case "add_task":
 		userTaskStates[tgUserId] = &TaskCreationState{Step: 1}
@@ -304,7 +342,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 		hash.Write(tgUserIdBytes)
 		hashedUserId := hash.Sum(nil)
 		req := &user.GetUserRequest{TgUserId: hashedUserId}
-		userGet, err := userClient.GetUser(ctx, req)
+		userGet, err := userService.Client.GetUser(ctx, req)
 		if err != nil {
 			log.Printf("Can't get user on show tasks: %v", err)
 			msg := tgbot.NewMessage(callback.Message.Chat.ID, "Ошибка при получении данных пользователя.")
@@ -316,7 +354,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 			return
 		}
 		taskReq := &task.GetTaskRequest{UserId: userGet.Id}
-		taskResponse, err := taskClient.GetTasks(ctx, taskReq)
+		taskResponse, err := taskService.Client.GetTasks(ctx, taskReq)
 		if err != nil {
 			log.Printf("Failed to fetch tasks: %v", err)
 			msg := tgbot.NewMessage(callback.Message.Chat.ID, "Ошибка при получении списка задач.")
@@ -365,7 +403,66 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 		}
 		return
 	case "plan":
+		service, ok = registry.GetService("scheduler")
+		if !ok {
+			log.Printf("Failed to get user service")
+			return
+		}
+		schedulerService, ok := service.(*services.SchedulerServiceClient)
+		if !ok {
+			log.Fatal("Ошибка приведения типа")
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		tgUserIdBytes := []byte(strconv.FormatInt(tgUserId, 10))
+
+		hash := sha256.New()
+		hash.Write(tgUserIdBytes)
+		hashedUserId := hash.Sum(nil)
+		req := &user.GetUserRequest{TgUserId: hashedUserId}
+		userGet, err := userService.Client.GetUser(ctx, req)
+		if err != nil {
+			log.Printf("Failed to get user on plan stage: %v", err)
+		}
+		planResp, err := schedulerService.Client.CalculateOptimalPlan(ctx, &pbScheduler.CalculatePlanRequest{
+			UserId: userGet.Id,
+		})
+		if err != nil {
+			log.Printf("Ошибка при получении плана: %v", err)
+			msg := tgbot.NewMessage(callback.Message.Chat.ID, "Не удалось получить план выполнения задач.")
+			_, errSend := bot.Send(msg)
+			if errSend != nil {
+				log.Printf("Failed to send message: %v", errSend)
+				return
+			}
+			return
+		}
+
+		if len(planResp.Tasks) == 0 {
+			msg := tgbot.NewMessage(callback.Message.Chat.ID, "У вас нет актуальных задач.")
+			_, errSend := bot.Send(msg)
+			if errSend != nil {
+				log.Printf("Failed to send message: %v", errSend)
+				return
+			}
+			return
+		}
+
+		var response string
+		for i, oneTask := range planResp.Tasks {
+			response += fmt.Sprintf("%d. %s (Приоритет: %d, Дедлайн: %s, Прогресс: %d%%)\n",
+				i+1, oneTask.TaskText, oneTask.Priority, oneTask.Deadline.AsTime().Format("2006-01-02"), oneTask.Progress)
+		}
+
+		msg := tgbot.NewMessage(callback.Message.Chat.ID, "Оптимальный план:\n"+response)
+		_, errSend := bot.Send(msg)
+		if errSend != nil {
+			log.Printf("Failed to send message: %v", errSend)
+			return
+		}
 		return
+
 	case "update_progress":
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -375,7 +472,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 		hash.Write(tgUserIdBytes)
 		hashedUserId := hash.Sum(nil)
 		req := &user.GetUserRequest{TgUserId: hashedUserId}
-		userGet, err := userClient.GetUser(ctx, req)
+		userGet, err := userService.Client.GetUser(ctx, req)
 		if err != nil {
 			log.Printf("Can't get user on show tasks: %v", err)
 			msg := tgbot.NewMessage(callback.Message.Chat.ID, "Ошибка при получении данных пользователя.")
@@ -387,7 +484,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 			return
 		}
 		tasksReq := &task.GetTaskRequest{UserId: userGet.Id}
-		tasksResp, err := taskClient.GetTasks(ctx, tasksReq)
+		tasksResp, err := taskService.Client.GetTasks(ctx, tasksReq)
 		if err != nil {
 			log.Printf("Failed to fetch tasks: %v", err)
 			_, errSend := bot.Send(tgbot.NewMessage(callback.Message.Chat.ID, "Ошибка при получении списка задач."))
@@ -421,7 +518,9 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 					continue
 				}
 			}
-
+			if t.Progress == 100 {
+				continue
+			}
 			button := tgbot.NewInlineKeyboardButtonData(t.TaskText, "task_"+strconv.FormatInt(t.TaskId, 10))
 			keyboard.InlineKeyboard = append(keyboard.InlineKeyboard, []tgbot.InlineKeyboardButton{button})
 		}
@@ -452,7 +551,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 		defer cancel()
 
 		userReq := &user.GetUserRequest{TgUserId: hashedUserId}
-		userGet, err := userClient.GetUser(ctx, userReq)
+		userGet, err := userService.Client.GetUser(ctx, userReq)
 		if err != nil {
 			log.Printf("Error fetching user: %v", err)
 			_, errSend := bot.Send(tgbot.NewMessage(callback.Message.Chat.ID, "Ошибка: не удалось получить пользователя"))
@@ -464,7 +563,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 		}
 
 		taskReq := &task.GetTaskRequest{UserId: userGet.Id}
-		taskList, err := taskClient.GetTasks(ctx, taskReq)
+		taskList, err := taskService.Client.GetTasks(ctx, taskReq)
 		if err != nil {
 			log.Printf("Error fetching tasks: %v", err)
 			_, errSend := bot.Send(tgbot.NewMessage(callback.Message.Chat.ID, "Ошибка: не удалось получить список задач"))
@@ -577,7 +676,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, taskClient
 		defer cancel()
 
 		delReq := &task.DeleteTaskRequest{TaskId: taskId}
-		_, err = taskClient.DeleteTask(ctx, delReq)
+		_, err = taskService.Client.DeleteTask(ctx, delReq)
 		if err != nil {
 			log.Printf("Error deleting task: %v", err)
 			_, errSend := bot.Send(tgbot.NewMessage(callback.Message.Chat.ID, "Ошибка: не удалось удалить задачу"))

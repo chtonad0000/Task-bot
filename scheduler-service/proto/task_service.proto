@@ -1,0 +1,57 @@
+syntax="proto3";
+
+package task;
+
+option go_package = "task_service/;task";
+
+import "google/protobuf/timestamp.proto";
+
+service TaskService {
+  rpc CreateTask (CreateTaskRequest) returns (TaskResponse);
+  rpc GetTasks (GetTaskRequest) returns (GetTaskResponse);
+  rpc DeleteTask (DeleteTaskRequest) returns (DeleteTaskResponse);
+  rpc UpdateTaskStatus (UpdateTaskStatusRequest) returns (UpdateTaskStatusResponse);
+}
+
+message CreateTaskRequest {
+  int64 user_id = 1;
+  string task_text = 2;
+  int32 priority = 3;
+  google.protobuf.Timestamp deadline = 4;
+}
+
+message TaskResponse {
+  int64 user_id = 1;
+  string task_text = 2;
+  int32 priority = 3;
+  google.protobuf.Timestamp deadline = 4;
+  int32 progress = 5;
+  int64 task_id = 6;
+}
+
+message GetTaskRequest {
+  int64 user_id = 1;
+}
+
+message GetTaskResponse {
+  repeated TaskResponse tasks = 1;
+}
+
+message DeleteTaskRequest {
+  int64 task_id = 1;
+}
+
+message DeleteTaskResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message UpdateTaskStatusRequest {
+  int64 task_id = 1;
+  int32 progress = 2;
+}
+
+message UpdateTaskStatusResponse {
+  bool success = 1;
+  string message = 2;
+}

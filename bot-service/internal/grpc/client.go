@@ -2,22 +2,25 @@ package grpc
 
 import (
 	"context"
+	"github.com/Task-bot/bot-service/internal/services"
 	"log"
 	"os"
 	"time"
 
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-
+	pbScheduler "github.com/Task-bot/bot-service/internal/generated/scheduler"
 	pbTask "github.com/Task-bot/bot-service/internal/generated/task"
 	pbUser "github.com/Task-bot/bot-service/internal/generated/user"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
-func ConnectClients() (pbTask.TaskServiceClient, pbUser.UserServiceClient) {
+func ConnectClients() *services.ServiceRegistry {
 	taskServiceAddr := os.Getenv("GRPC_TASK_SERVICE_ADDR")
 	userServiceAddr := os.Getenv("GRPC_USER_SERVICE_ADDR")
+	schedulerServiceAddr := os.Getenv("GRPC_SCHEDULER_SERVICE_ADDR")
 
-	if taskServiceAddr == "" || userServiceAddr == "" {
+	if taskServiceAddr == "" || userServiceAddr == "" || schedulerServiceAddr == "" {
 		log.Fatal("gRPC service addresses are not set")
 	}
 
@@ -34,6 +37,16 @@ func ConnectClients() (pbTask.TaskServiceClient, pbUser.UserServiceClient) {
 		log.Fatalf("Failed to connect to User service: %v", err)
 	}
 
+	schedulerConn, err := grpc.DialContext(ctx, schedulerServiceAddr, grpc.WithTransportCredentials(insecure.NewCredentials()), grpc.WithBlock())
+	if err != nil {
+		log.Fatalf("Failed to connect to Scheduler service: %v", err)
+	}
+
 	log.Println("Successfully connected to gRPC services")
-	return pbTask.NewTaskServiceClient(taskConn), pbUser.NewUserServiceClient(userConn)
+	registry := services.NewServiceRegistry()
+	registry.RegisterService(services.NewUserServiceClient(pbUser.NewUserServiceClient(userConn)))
+	registry.RegisterService(services.NewTaskServiceClient(pbTask.NewTaskServiceClient(taskConn)))
+	registry.RegisterService(services.NewSchedulerServiceClient(pbScheduler.NewSchedulerClient(schedulerConn)))
+
+	return registry
 }

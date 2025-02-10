@@ -19,14 +19,14 @@ func main() {
 		log.Println("No .env file found, using system environment variables")
 	}
 
-	taskClient, userClient := grpc.ConnectClients()
+	registry := grpc.ConnectClients()
 
 	botToken := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if botToken == "" {
 		log.Fatal("TELEGRAM_BOT_TOKEN is not set")
 	}
 
-	go bot.StartBot(botToken, taskClient, userClient)
+	go bot.StartBot(botToken, registry)
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
