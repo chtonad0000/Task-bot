@@ -26,6 +26,7 @@ Task Manager Bot — это Telegram-бот, предназначенный дл
 - Go 1.18 или выше
 - Docker (для запуска PostgreSQL контейнера)
 - Telegram bot token (необходим для взаимодействия с ботом)
+- Windows (для запуска .bat файлов)
 
 ## Инструкция по запуску
 
