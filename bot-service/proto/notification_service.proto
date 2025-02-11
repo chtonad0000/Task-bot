@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package notification;
+
+import "google/protobuf/timestamp.proto";
+
+option go_package = "./;notification";
+
+message Notification {
+  int64 user_id = 1;
+  string message = 2;
+  google.protobuf.Timestamp notify_time = 3;
+}
+
+service NotificationService {
+  rpc CreateNotification(Notification) returns (CreateNotificationResponse);
+}
+
+message CreateNotificationResponse {
+  bool success = 1;
+}

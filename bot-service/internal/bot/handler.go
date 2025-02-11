@@ -2,7 +2,6 @@ package bot
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
 	pbScheduler "github.com/Task-bot/bot-service/internal/generated/scheduler"
 	"github.com/Task-bot/bot-service/internal/services"
@@ -12,10 +11,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Task-bot/bot-service/internal/generated/notification"
 	"github.com/Task-bot/bot-service/internal/generated/task"
 	"github.com/Task-bot/bot-service/internal/generated/user"
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
+
+func SendTelegramNotification(bot *tgbot.BotAPI, userId int64, message string) error {
+	msg := tgbot.NewMessage(userId, message)
+	_, err := bot.Send(msg)
+	if err != nil {
+		log.Printf("Ошибка отправки сообщения: %v", err)
+		return err
+	}
+
+	return nil
+
+}
 
 func MakeButtons() tgbot.InlineKeyboardMarkup {
 	return tgbot.NewInlineKeyboardMarkup(
@@ -27,7 +39,7 @@ func MakeButtons() tgbot.InlineKeyboardMarkup {
 	)
 }
 
-func CreateTask(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.TaskServiceClient, userClient user.UserServiceClient) bool {
+func CreateTask(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.TaskServiceClient, userClient user.UserServiceClient, notificationClient notification.NotificationServiceClient) bool {
 	tgUserId := message.From.ID
 	text := message.Text
 	state, exists := userTaskStates[tgUserId]
@@ -107,14 +119,10 @@ func CreateTask(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.TaskS
 			userTaskStates[tgUserId] = state
 			tgUserIdBytes := []byte(strconv.FormatInt(tgUserId, 10))
 
-			hash := sha256.New()
-			hash.Write(tgUserIdBytes)
-			hashedUserId := hash.Sum(nil)
-
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			req := &user.GetUserRequest{TgUserId: hashedUserId}
+			req := &user.GetUserRequest{TgUserId: tgUserIdBytes}
 			userGet, err := userClient.GetUser(ctx, req)
 			if err != nil {
 				log.Printf("Can't get user on task creating: %v", err)
@@ -149,6 +157,43 @@ func CreateTask(bot *tgbot.BotAPI, message *tgbot.Message, taskClient task.TaskS
 				}
 				return true
 			}
+			notificationTimes := []time.Duration{
+				24 * time.Hour,
+				12 * time.Hour,
+				3 * time.Hour,
+				1 * time.Hour,
+				10 * time.Minute,
+			}
+
+			now := time.Now().UTC()
+
+			for _, nt := range notificationTimes {
+				notifyTime := state.Deadline.Add(-nt)
+				if notifyTime.After(now) {
+					tgUserID, err := strconv.ParseInt(string(tgUserIdBytes), 10, 64)
+					location, err := time.LoadLocation("Europe/Moscow")
+					if err != nil {
+						log.Println("Error loading location:", err)
+					}
+					if err != nil {
+						log.Fatalf("Ошибка преобразования: %v", err)
+					}
+					notificationReq := &notification.Notification{
+						UserId:     tgUserID,
+						Message:    fmt.Sprintf("Напоминание: %s. Дедлайн: %s", state.TaskName, state.Deadline.In(location).Format("02-01-2006 15:04")),
+						NotifyTime: timestamppb.New(notifyTime),
+					}
+
+					ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+					defer cancel()
+
+					_, err = notificationClient.CreateNotification(ctx, notificationReq)
+					if err != nil {
+						log.Printf("Не удалось создать уведомление: %v", err)
+					}
+				}
+			}
+
 			inlineKeyboard := MakeButtons()
 			msg := tgbot.NewMessage(message.Chat.ID, "Задача успешно добавлена!")
 			msg.ReplyMarkup = inlineKeyboard
@@ -209,15 +254,10 @@ func handleMessage(bot *tgbot.BotAPI, message *tgbot.Message, registry *services
 	text := message.Text
 
 	tgUserIdBytes := []byte(strconv.FormatInt(tgUserId, 10))
-
-	hash := sha256.New()
-	hash.Write(tgUserIdBytes)
-	hashedUserId := hash.Sum(nil)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	req := &user.GetUserRequest{TgUserId: hashedUserId}
+	req := &user.GetUserRequest{TgUserId: tgUserIdBytes}
 	service, ok := registry.GetService("user")
 	if !ok {
 		log.Printf("Failed to get user service")
@@ -236,10 +276,20 @@ func handleMessage(bot *tgbot.BotAPI, message *tgbot.Message, registry *services
 	if !ok {
 		log.Fatal("Ошибка приведения типа")
 	}
+
+	service, ok = registry.GetService("notification")
+	if !ok {
+		log.Printf("Failed to get user service")
+		return
+	}
+	notificationService, ok := service.(*services.NotificationServiceClient)
+	if !ok {
+		log.Fatal("Ошибка приведения типа")
+	}
 	userGet, err := userService.Client.GetUser(ctx, req)
 	if err != nil {
 		newUser := &user.CreateUserRequest{
-			TgUserId: hashedUserId,
+			TgUserId: tgUserIdBytes,
 			Username: message.From.UserName,
 		}
 		_, errCreate := userService.Client.CreateUser(ctx, newUser)
@@ -253,7 +303,7 @@ func handleMessage(bot *tgbot.BotAPI, message *tgbot.Message, registry *services
 		log.Printf("User found: %v", userGet)
 	}
 
-	res := CreateTask(bot, message, taskService.Client, userService.Client)
+	res := CreateTask(bot, message, taskService.Client, userService.Client, notificationService.Client)
 	if res {
 		return
 	}
@@ -338,10 +388,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, registry *
 		defer cancel()
 		tgUserIdBytes := []byte(strconv.FormatInt(tgUserId, 10))
 
-		hash := sha256.New()
-		hash.Write(tgUserIdBytes)
-		hashedUserId := hash.Sum(nil)
-		req := &user.GetUserRequest{TgUserId: hashedUserId}
+		req := &user.GetUserRequest{TgUserId: tgUserIdBytes}
 		userGet, err := userService.Client.GetUser(ctx, req)
 		if err != nil {
 			log.Printf("Can't get user on show tasks: %v", err)
@@ -416,11 +463,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, registry *
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		tgUserIdBytes := []byte(strconv.FormatInt(tgUserId, 10))
-
-		hash := sha256.New()
-		hash.Write(tgUserIdBytes)
-		hashedUserId := hash.Sum(nil)
-		req := &user.GetUserRequest{TgUserId: hashedUserId}
+		req := &user.GetUserRequest{TgUserId: tgUserIdBytes}
 		userGet, err := userService.Client.GetUser(ctx, req)
 		if err != nil {
 			log.Printf("Failed to get user on plan stage: %v", err)
@@ -467,11 +510,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, registry *
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		tgUserIdBytes := []byte(strconv.FormatInt(tgUserId, 10))
-
-		hash := sha256.New()
-		hash.Write(tgUserIdBytes)
-		hashedUserId := hash.Sum(nil)
-		req := &user.GetUserRequest{TgUserId: hashedUserId}
+		req := &user.GetUserRequest{TgUserId: tgUserIdBytes}
 		userGet, err := userService.Client.GetUser(ctx, req)
 		if err != nil {
 			log.Printf("Can't get user on show tasks: %v", err)
@@ -543,14 +582,10 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, registry *
 	case "delete_task":
 		tgUserIdBytes := []byte(strconv.FormatInt(tgUserId, 10))
 
-		hash := sha256.New()
-		hash.Write(tgUserIdBytes)
-		hashedUserId := hash.Sum(nil)
-
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
-		userReq := &user.GetUserRequest{TgUserId: hashedUserId}
+		userReq := &user.GetUserRequest{TgUserId: tgUserIdBytes}
 		userGet, err := userService.Client.GetUser(ctx, userReq)
 		if err != nil {
 			log.Printf("Error fetching user: %v", err)
