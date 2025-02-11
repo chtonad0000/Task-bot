@@ -22,7 +22,7 @@ func NewNotificationWorker(storage service.NotificationStorage, kafkaProducer *k
 }
 
 func (w *NotificationWorker) Start(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	for {

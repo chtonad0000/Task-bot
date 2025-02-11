@@ -17,7 +17,6 @@ type NotificationMessage struct {
 	Message string `json:"message"`
 }
 
-// NewKafkaProducer создает Kafka-продюсер
 func NewKafkaProducer(brokerURL, topic string) (*Producer, error) {
 	config := sarama.NewConfig()
 	config.Producer.Return.Successes = true
