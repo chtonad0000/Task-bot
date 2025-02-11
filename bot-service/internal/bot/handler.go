@@ -438,7 +438,7 @@ func handleCallback(bot *tgbot.BotAPI, callback *tgbot.CallbackQuery, registry *
 				}
 			}
 
-			taskList += fmt.Sprintf("%d. %s Дедлайн: [%s] %d%% %s%s\n",
+			taskList += fmt.Sprintf("%d. %s. Дедлайн: [%s] %d%% %s%s\n",
 				i+1, t.TaskText, deadlineTime.Format("02.01.2006 15:04"), t.Progress, emoji, overdueMsg)
 		}
 
